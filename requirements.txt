@@ -1,7 +1,6 @@
 aiofiles==0.5.0
 blinker==1.4
 click==7.1.2
-dataclasses==0.7
 h11==0.10.0
 h2==4.0.0
 hpack==4.0.0
