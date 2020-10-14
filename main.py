@@ -116,11 +116,19 @@ async def deregister(service, host, port):
     if to_remove == 0:
         return empty_res, 404
     elif to_remove != 1:
+        print(services)
+        print(to_remove)
         return await make_response('more than one peer registered with the same service, host and port'), 409
 
     idx = to_remove[0]
     del services[service][idx]
     return empty_res, 204
+
+
+@app.route('/services/flush', methods=["DELETE"])
+async def flush():
+    services.clear()
+    return 204, await make_response('')
 
 
 def health_check():
