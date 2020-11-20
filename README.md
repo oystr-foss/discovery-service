@@ -19,6 +19,19 @@ $ pip install -r requirements.txt
 
 ### Running
 
+Configure a .env file with the following data:
+
+```markdown
+[postgres]
+database=discovery
+host=<DATABASE_HOSTNAME>
+username=<USERNAME>
+password=<PASSWORD>
+
+[load_balancer]
+lb_address=<LOAD_BALANCER_ADDRESS>
+```
+
 In order to run the service, just type:
 
 ```bash

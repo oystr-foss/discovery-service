@@ -1,6 +1,7 @@
 aiofiles==0.5.0
 blinker==1.4
 click==7.1.2
+dataclasses==0.7
 h11==0.10.0
 h2==4.0.0
 hpack==4.0.0
@@ -10,6 +11,8 @@ itsdangerous==1.1.0
 Jinja2==2.11.2
 MarkupSafe==1.1.1
 multidict==4.7.6
+psycopg2==2.8.6
+python-dotenv==0.15.0
 pytoml==0.1.21
 pytz==2020.1
 Quart==0.6.15
