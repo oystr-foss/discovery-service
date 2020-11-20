@@ -1,3 +1,4 @@
+import os
 import itertools
 import json
 import random
@@ -11,6 +12,9 @@ import pytz
 import schedule
 from quart import Quart, request, make_response
 
+from dotenv import load_dotenv
+
+from pg import PostgresDB
 from service import Service, Status
 from timer import Timer
 
@@ -19,6 +23,14 @@ app = Quart(__name__)
 tz = pytz.timezone('America/Sao_Paulo')
 timer = Timer()
 services: Dict[str, List[Service]] = {}
+load_dotenv()
+
+database = os.getenv('database')
+db_host = os.getenv('host')
+db_user = os.getenv('username')
+db_pass = os.getenv('password')
+
+db = PostgresDB(host=db_host, db=database, user=db_user, password=db_pass)
 
 
 @app.before_request
@@ -38,7 +50,33 @@ async def after_request(response):
     return response
 
 
+@app.route('/lb', methods=["GET"])
+async def get_service_lb():
+    headers = request.headers
+    execution = headers.get('X-Oystr-Execution', None)
+
+    if execution:
+        try:
+            # noinspection SqlDialectInspection, SqlNoDataSourceInspection
+            db.query(f"INSERT INTO metadata(execution) VALUES('{execution}');")
+        except Exception as e:
+            print(e)
+
+    return os.getenv('lb_address', '127.0.0.1:8080')
+
+
 @app.route('/services', methods=["GET"])
+async def find_all_active():
+    items = services.values()
+    data = [i for i in list(itertools.chain.from_iterable(items))]
+    as_dict = [d.__dict__ for d in data if d.status.status == 'running']
+
+    return \
+        await make_response(json.dumps(as_dict, default=lambda o: o.isoformat() if isinstance(o, datetime) else str(o))),\
+        200
+
+
+@app.route('/services/all', methods=["GET"])
 async def find_all():
     items = services.values()
     data = [i for i in list(itertools.chain.from_iterable(items))]
@@ -60,7 +98,7 @@ async def find_one(service):
 
     size = len(data)
     if size == 0:
-        return await make_response(''), 503
+        return await make_response(''), 404
 
     idx = random.randint(0, size - 1)
     return await make_response(data[idx].json()), 200
@@ -90,19 +128,6 @@ async def register():
     return await make_response(service.json()), 200
 
 
-async def validate(service, host, port, check_duplicate=True):
-    if not str(port).isnumeric():
-        return await make_response(f'port must be a number'), 400
-    elif not host or len(host) == 0:
-        return await make_response('host must be provided'), 400
-    elif not service or len(service) == 0:
-        return await make_response('service_id must be provided'), 400
-    elif check_duplicate and (service not in services.keys()):
-        return await make_response(''), 404
-
-    return None, -1
-
-
 @app.route('/services/<service>/<host>/<port>', methods=["DELETE"])
 async def deregister(service, host, port):
     res, code = await validate(service, host, port)
@@ -113,9 +138,9 @@ async def deregister(service, host, port):
     to_remove = [idx for idx in range(len(services[service])) if services[service][idx].host == host and
                  services[service][idx].port == port]
 
-    if to_remove == 0:
+    if len(to_remove) == 0:
         return empty_res, 404
-    elif to_remove != 1:
+    elif len(to_remove) != 1:
         print(services)
         print(to_remove)
         return await make_response('more than one peer registered with the same service, host and port'), 409
@@ -128,7 +153,20 @@ async def deregister(service, host, port):
 @app.route('/services/flush', methods=["DELETE"])
 async def flush():
     services.clear()
-    return 204, await make_response('')
+    return await make_response(''), 204
+
+
+async def validate(service, host, port, check_duplicate=True):
+    if not str(port).isnumeric():
+        return await make_response(f'port must be a number'), 400
+    elif not host or len(host) == 0:
+        return await make_response('host must be provided'), 400
+    elif not service or len(service) == 0:
+        return await make_response('service_id must be provided'), 400
+    elif check_duplicate and (service not in services.keys()):
+        return await make_response(''), 404
+
+    return None, -1
 
 
 def health_check():
@@ -154,7 +192,7 @@ def health_check():
                     continue
 
                 service.status = Status('pending')
-                print(f'{service.service_id} {service.status.status} health checked')
+                print(f'{service.service_id} [{service.status.status}] health checked')
             finally:
                 service.last_health_check = datetime.now(tz=tz)
 
@@ -170,11 +208,14 @@ def remove_disabled():
     for k, v in services2.items():
         for idx, service in enumerate(v):
             if service.status.status == 'disabled':
-                del services[k][idx]
+                try:
+                    del services[k][idx]
+                except Exception as e:
+                    print(e)
 
 
 schedule.every(30).seconds.do(health_check)
-schedule.every(15).minutes.do(remove_disabled)
+schedule.every(40).seconds.do(remove_disabled)
 
 thread = Thread(target=run_scheduler, args=(), daemon=True)
 thread.start()
